@@ -7,5 +7,7 @@ public enum ExprTag
     MemberAccess,
     MethodCall,
     Binary,
-    Unary
+    Unary,
+    NumberLiteral,
+    BoolLiteral,
 }

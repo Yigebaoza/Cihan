@@ -43,16 +43,42 @@ public sealed class Tokenizer(string source)
 
     private Token NextToken()
     {
-        while (PeekChar(0) == ' ' || PeekChar(0) == '\t' || PeekChar(0) == '\r' || PeekChar(0) == '\n')
+
+        while (true)
         {
-            AdvanceChar();
-        }
-        if (PeekChar(0) == null)
-        {
-            return new Token(TokenKind.Eof, "");
+            if (PeekChar(0) == null)
+            {
+                return new Token(TokenKind.Eof, "");
+            }
+            if (PeekChar(0) == ' ' || PeekChar(0) == '\t' || PeekChar(0) == '\r' || PeekChar(0) == '\n')
+            {
+                AdvanceChar();
+                continue;
+            }
+            if (PeekChar(0) == '#')
+            {
+                while (PeekChar(0) != '\n' && PeekChar(0) != null)
+                {
+                    AdvanceChar();
+                }
+                continue;
+            }
+            break;
         }
 
         char? current = PeekChar(0);
+
+        if (current != null && char.IsDigit(current.Value))
+        {
+            int start = _index;
+            while (PeekChar(0) is char c && (char.IsDigit(c) || c == '.'))
+            {
+                AdvanceChar();
+            }
+            string num = Source[start.._index];
+            return new Token(TokenKind.NumberLiteral, num);
+        }
+
         if (current != null && (char.IsLetter(current.Value) || current.Value == '_'))
         {
             int start = _index;
@@ -61,7 +87,15 @@ public sealed class Tokenizer(string source)
                 AdvanceChar();
             }
             string text = Source[start.._index];
-            return new Token(TokenKind.Identifier, text);
+            return text switch
+            {
+                "var" => new Token(TokenKind.Var, text),
+                "if" => new Token(TokenKind.If, text),
+                "else" => new Token(TokenKind.Else, text),
+                "True" => new Token(TokenKind.True, text),
+                "False" => new Token(TokenKind.False, text),
+                _ => new Token(TokenKind.Identifier, text)
+            };
         }
 
         switch (AdvanceChar())
@@ -70,6 +104,25 @@ public sealed class Tokenizer(string source)
             case '(': return new Token(TokenKind.LeftParen, "(");
             case ')': return new Token(TokenKind.RightParen, ")");
             case ',': return new Token(TokenKind.Comma, ",");
+            case ';': return new Token(TokenKind.Semicolon, ";");
+            case '+': return new Token(TokenKind.Plus, "+");
+            case '-': return new Token(TokenKind.Minus, "-");
+            case '*': return new Token(TokenKind.Star, "*");
+            case '/': return new Token(TokenKind.Slash, "/");
+            case '{': return new Token(TokenKind.LeftBrace, "{");
+            case '}': return new Token(TokenKind.RightBrace, "}");
+            case '=':
+                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.EqualEqual, "=="); }
+                return new Token(TokenKind.Equals, "=");  // 单个 = 还是赋值号
+            case '!':
+                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.BangEquals, "!="); }
+                return new Token(TokenKind.Bang, "!");
+            case '<':
+                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.LessOrEqual, "<="); }
+                return new Token(TokenKind.Less, "<");
+            case '>':
+                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.GreaterOrEqual, ">="); }
+                return new Token(TokenKind.Greater, ">");
             case '"':
                 int stringLiteralStart = _index;
 
@@ -85,6 +138,24 @@ public sealed class Tokenizer(string source)
                 }
 
                 return new Token(TokenKind.StringLiteral, value);
+            case '&':
+                if (PeekChar(0) == '&')
+                {
+                    AdvanceChar();
+                    return new Token(TokenKind.AmpAmp, "&&");
+                }
+                throw new Exception("暂不支持单个&");
+
+            case '|':
+                if (PeekChar(0) == '|')
+                {
+                    AdvanceChar();
+                    return new Token(TokenKind.PipePipe, "||");
+                }
+                throw new Exception("暂不支持单个|");
+
+
+
             default:
                 throw new Exception($"Unexpected character: {current}");
         }
