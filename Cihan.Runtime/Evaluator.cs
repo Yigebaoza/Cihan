@@ -60,6 +60,33 @@ public sealed class Evaluator
 			case BoolLiteralExpr boolean:
 				return new Bool(boolean.Value);
 			case UnaryExpr unary:
+				if (unary.Op is UnaryOp.PrefixIncrement or UnaryOp.PrefixDecrement
+					or UnaryOp.PostfixIncrement or UnaryOp.PostfixDecrement)
+				{
+					if (unary.Operand is not IdentifierExpr identifier)
+					{
+						throw new Exception("自增和自减运算符只能用于变量");
+					}
+					if (!_current.TryGet(identifier.Name, out var incrementVariable))
+					{
+						throw new Exception($"未定义的变量: {identifier.Name}");
+					}
+					if (incrementVariable.IsConst)
+					{
+						throw new Exception($"无法对常量 '{identifier.Name}' 重新赋值");
+					}
+
+					double oldValue = ToNumber(incrementVariable.Value);
+					double newValue = unary.Op is UnaryOp.PrefixIncrement or UnaryOp.PostfixIncrement
+						? oldValue + 1
+						: oldValue - 1;
+					incrementVariable.Value = newValue;
+
+					return unary.Op is UnaryOp.PostfixIncrement or UnaryOp.PostfixDecrement
+						? oldValue
+						: newValue;
+				}
+
 				object? value = Evaluate(unary.Operand);
 				if (unary.Op == UnaryOp.Not)
 				{

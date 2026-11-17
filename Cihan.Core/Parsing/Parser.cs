@@ -56,6 +56,159 @@ public sealed class Parser(List<Token> tokens)
         return new Program(stmts);
     }
 
+    private Expr ParseOr()
+    {
+        Expr left = ParseAnd();
+        while (Match(TokenKind.PipePipe))
+        {
+            Expr right = ParseAnd();
+            left = new BinaryExpr(left, BinaryOp.Or, right);
+        }
+        return left;
+    }
+
+    private Expr ParseAnd()
+    {
+        Expr left = ParseEquality();
+        while (Match(TokenKind.AmpAmp))
+        {
+            Expr right = ParseEquality();
+            left = new BinaryExpr(left, BinaryOp.And, right);
+        }
+        return left;
+    }
+
+    private Expr ParseEquality()
+    {
+        // i < 5
+        Expr left = ParseComparison();
+
+        while (Peek().Kind is TokenKind.EqualEqual or TokenKind.BangEquals)
+        {
+            Token opToken = Advance();
+            BinaryOp op = opToken.Kind == TokenKind.EqualEqual ? BinaryOp.Equal : BinaryOp.NotEqual;
+
+            Expr right = ParseComparison();
+            left = new BinaryExpr(left, op, right);
+        }
+
+        return left;
+    }
+
+    private Expr ParseComparison()
+    {
+        // i < 5
+        Expr left = ParseExpression();   // 下层先解析左右两边
+
+        while (Peek().Kind is TokenKind.Less or TokenKind.Greater
+                                  or TokenKind.LessOrEqual or TokenKind.GreaterOrEqual)
+        {
+            Token opToken = Advance();
+            BinaryOp op = opToken.Kind switch
+            {
+                TokenKind.Less => BinaryOp.Less,
+                TokenKind.Greater => BinaryOp.Greater,
+                TokenKind.LessOrEqual => BinaryOp.LessOrEqual,
+                TokenKind.GreaterOrEqual => BinaryOp.GreaterOrEqual,
+                _ => throw new Exception()
+            };
+
+
+            Expr right = ParseExpression();
+            left = new BinaryExpr(left, op, right);
+        }
+
+        return left;
+    }
+
+    private Expr ParseExpression()
+    {
+        // i < 5
+        // 1. 先让下一层去解析左边（可能是数字、字符串、或者更复杂的表达式）
+        Expr left = ParseTerm();
+
+        // 2. 循环检查：后面还有没有 + 或 - ？
+        while (Peek().Kind is TokenKind.Plus or TokenKind.Minus)
+        {
+            // 3. 吃掉这个运算符
+            Token opToken = Advance();
+            BinaryOp op = opToken.Kind == TokenKind.Plus ? BinaryOp.Add : BinaryOp.Subtract;
+
+            // 4. 让下一层去解析右边
+            Expr right = ParseTerm();
+
+            // 5. 把左边和右边包装成一个新的 BinaryExpr，并更新 left
+            left = new BinaryExpr(left, op, right);
+        }
+
+        // 6. 没有更多 + 或 - 了，返回
+        return left;
+    }
+
+    private Expr ParseTerm()
+    {
+        // 1. 先让下一层去解析左边
+        Expr left = ParseUnary();
+
+        // 2. 循环检查：后面还有没有 * 或 / ？
+        while (Peek().Kind is TokenKind.Star or TokenKind.Slash)
+        {
+            Token opToken = Advance();
+            BinaryOp op = opToken.Kind == TokenKind.Star ? BinaryOp.Multiply : BinaryOp.Divide;
+
+            Expr right = ParseUnary();
+
+            left = new BinaryExpr(left, op, right);
+        }
+
+        return left;
+    }
+
+    private Expr ParseUnary()
+    {
+        if (Match(TokenKind.PlusPlus))
+        {
+            return CreateIncrementExpr(UnaryOp.PrefixIncrement, ParseUnary());
+        }
+        if (Match(TokenKind.MinusMinus))
+        {
+            return CreateIncrementExpr(UnaryOp.PrefixDecrement, ParseUnary());
+        }
+        if (Match(TokenKind.Bang))
+        {
+            Expr operand = ParseUnary();   // 递归！支持 !!!x
+            return new UnaryExpr(UnaryOp.Not, operand);
+        }
+        if (Match(TokenKind.Minus))
+        {
+            Expr operand = ParseUnary();   // 递归！支持 -(-1)
+            return new UnaryExpr(UnaryOp.Negate, operand);
+        }
+        return ParsePostfix();
+    }
+
+    private Expr ParsePostfix()
+    {
+        Expr expr = ParsePrimary();
+        while (Peek().Kind is TokenKind.PlusPlus or TokenKind.MinusMinus)
+        {
+            Token op = Advance();
+            expr = CreateIncrementExpr(
+                op.Kind == TokenKind.PlusPlus ? UnaryOp.PostfixIncrement : UnaryOp.PostfixDecrement,
+                expr);
+        }
+        return expr;
+    }
+
+    private static UnaryExpr CreateIncrementExpr(UnaryOp op, Expr operand)
+    {
+        if (operand is not IdentifierExpr)
+        {
+            throw new Exception("自增和自减运算符只能用于变量");
+        }
+        return new UnaryExpr(op, operand);
+    }
+
     private Expr ParsePrimary()
     {
         switch (Peek().Kind)
@@ -107,137 +260,12 @@ public sealed class Parser(List<Token> tokens)
         }
     }
 
-    private Expr ParseExpression()
-    {
-        // i < 5
-        // 1. 先让下一层去解析左边（可能是数字、字符串、或者更复杂的表达式）
-        Expr left = ParseTerm();
-
-        // 2. 循环检查：后面还有没有 + 或 - ？
-        while (Peek().Kind is TokenKind.Plus or TokenKind.Minus)
-        {
-            // 3. 吃掉这个运算符
-            Token opToken = Advance();
-            BinaryOp op = opToken.Kind == TokenKind.Plus ? BinaryOp.Add : BinaryOp.Subtract;
-
-            // 4. 让下一层去解析右边
-            Expr right = ParseTerm();
-
-            // 5. 把左边和右边包装成一个新的 BinaryExpr，并更新 left
-            left = new BinaryExpr(left, op, right);
-        }
-
-        // 6. 没有更多 + 或 - 了，返回
-        return left;
-    }
-
-    private Expr ParseTerm()
-    {
-        // 1. 先让下一层去解析左边
-        Expr left = ParseUnary();
-
-        // 2. 循环检查：后面还有没有 * 或 / ？
-        while (Peek().Kind is TokenKind.Star or TokenKind.Slash)
-        {
-            Token opToken = Advance();
-            BinaryOp op = opToken.Kind == TokenKind.Star ? BinaryOp.Multiply : BinaryOp.Divide;
-
-            Expr right = ParseUnary();
-
-            left = new BinaryExpr(left, op, right);
-        }
-
-        return left;
-    }
-
-    private Expr ParseComparison()
-    {
-        // i < 5
-        Expr left = ParseExpression();   // 下层先解析左右两边
-
-        while (Peek().Kind is TokenKind.Less or TokenKind.Greater
-                                  or TokenKind.LessOrEqual or TokenKind.GreaterOrEqual)
-        {
-            Token opToken = Advance();
-            BinaryOp op = opToken.Kind switch
-            {
-                TokenKind.Less => BinaryOp.Less,
-                TokenKind.Greater => BinaryOp.Greater,
-                TokenKind.LessOrEqual => BinaryOp.LessOrEqual,
-                TokenKind.GreaterOrEqual => BinaryOp.GreaterOrEqual,
-                _ => throw new Exception()
-            };
-
-
-            Expr right = ParseExpression();
-            left = new BinaryExpr(left, op, right);
-        }
-
-        return left;
-    }
-
-    private Expr ParseEquality()
-    {
-        // i < 5
-        Expr left = ParseComparison();
-
-        while (Peek().Kind is TokenKind.EqualEqual or TokenKind.BangEquals)
-        {
-            Token opToken = Advance();
-            BinaryOp op = opToken.Kind == TokenKind.EqualEqual ? BinaryOp.Equal : BinaryOp.NotEqual;
-
-            Expr right = ParseComparison();
-            left = new BinaryExpr(left, op, right);
-        }
-
-        return left;
-    }
-
-    private Expr ParseOr()
-    {
-        // i < 5
-        Expr left = ParseAnd();
-        while (Match(TokenKind.PipePipe))
-        {
-            Expr right = ParseAnd();
-            left = new BinaryExpr(left, BinaryOp.Or, right);
-        }
-        return left;
-    }
-
-    private Expr ParseUnary()
-    {
-        if (Match(TokenKind.Bang))
-        {
-            Expr operand = ParseUnary();   // 递归！支持 !!!x
-            return new UnaryExpr(UnaryOp.Not, operand);
-        }
-        if (Match(TokenKind.Minus))
-        {
-            Expr operand = ParseUnary();   // 递归！支持 -(-1)
-            return new UnaryExpr(UnaryOp.Negate, operand);
-        }
-        return ParsePrimary();
-    }
-
-    private Expr ParseAnd()
-    {
-        // i < 5
-        Expr left = ParseEquality();
-        while (Match(TokenKind.AmpAmp))
-        {
-            Expr right = ParseEquality();
-            left = new BinaryExpr(left, BinaryOp.And, right);
-        }
-        return left;
-    }
-
     /* public Expr Parse()
        {
            Expr expr = ParseEquality();
            if (!IsAtEnd())
     //     {
-    //         throw new Exception("还有多余的");
+    //         throw new Exception("解析完成后还有剩余的 Token");
     //     }
            return expr;
        }
@@ -333,8 +361,16 @@ public sealed class Parser(List<Token> tokens)
             return new FuncDecl(funcName, @params, defaults, body);
         }
 
-        if (Match(TokenKind.Break)) return new BreakStmt();
-        if (Match(TokenKind.Continue)) return new ContinueStmt();
+        if (Match(TokenKind.Break))
+        {
+            if (!Match(TokenKind.Semicolon)) throw new Exception("break语句必须以分号结尾");
+            return new BreakStmt();
+        }
+        if (Match(TokenKind.Continue))
+        {
+            if (!Match(TokenKind.Semicolon)) throw new Exception("continue语句必须以分号结尾");
+            return new ContinueStmt();
+        }
         if (Match(TokenKind.Return)) return new ExprStmt(ParseOr());
 
         // 赋值语句：标识符 紧跟 =
@@ -349,10 +385,12 @@ public sealed class Parser(List<Token> tokens)
 
         // 表达式语句分支
         Expr expr = ParseOr();
+
         if (!Match(TokenKind.Semicolon))
         {
             throw new Exception($"语句必须以分号结尾，当前 Token: {Peek().Kind}");
         }
+
         return new ExprStmt(expr);
     }
 

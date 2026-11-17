@@ -47,8 +47,9 @@ public enum TokenKind
 	AmpAmp,          // &&
 	PipePipe,        // ||
 	Bang,            // !
-
-	// ===== 特殊 =====
+	PlusPlus,        // ++
+	MinusMinus,      // --
+					 // ===== 特殊 =====
 	Identifier,      // 标识符
 	Eof,             // End Of File，输入结束标记
 }

@@ -43,7 +43,6 @@ public sealed class Tokenizer(string source)
 
     private Token NextToken()
     {
-
         while (true)
         {
             if (PeekChar(0) == null)
@@ -111,8 +110,12 @@ public sealed class Tokenizer(string source)
             case ')': return new Token(TokenKind.RightParen, ")");
             case ',': return new Token(TokenKind.Comma, ",");
             case ';': return new Token(TokenKind.Semicolon, ";");
-            case '+': return new Token(TokenKind.Plus, "+");
-            case '-': return new Token(TokenKind.Minus, "-");
+            case '+':
+                if (PeekChar(0) == '+') { AdvanceChar(); return new Token(TokenKind.PlusPlus, "++"); }
+                return new Token(TokenKind.Plus, "+");
+            case '-':
+                if (PeekChar(0) == '-') { AdvanceChar(); return new Token(TokenKind.MinusMinus, "--"); }
+                return new Token(TokenKind.Minus, "-");
             case '*': return new Token(TokenKind.Star, "*");
             case '/': return new Token(TokenKind.Slash, "/");
             case '{': return new Token(TokenKind.LeftBrace, "{");

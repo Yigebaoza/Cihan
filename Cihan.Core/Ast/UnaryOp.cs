@@ -4,4 +4,8 @@ public enum UnaryOp
 {
     Negate,     // -
     Not,        // !
+    PrefixIncrement,
+    PrefixDecrement,
+    PostfixIncrement,
+    PostfixDecrement,
 }
