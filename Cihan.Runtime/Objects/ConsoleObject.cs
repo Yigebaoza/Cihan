@@ -7,6 +7,11 @@ public sealed class ConsoleObject
         Console.WriteLine(value);
     }
 
+    public static void Write(object? value)
+    {
+        Console.Write(value);
+    }
+
     public static string? Readln(object? value)
     {
         Console.Write(value);

@@ -90,8 +90,14 @@ public sealed class Tokenizer(string source)
             return text switch
             {
                 "var" => new Token(TokenKind.Var, text),
+                "const" => new Token(TokenKind.Const, text),
                 "if" => new Token(TokenKind.If, text),
                 "else" => new Token(TokenKind.Else, text),
+                "while" => new Token(TokenKind.While, text),
+                "break" => new Token(TokenKind.Break, text),
+                "continue" => new Token(TokenKind.Continue, text),
+                "func" => new Token(TokenKind.Func, text),
+                "return" => new Token(TokenKind.Return, text),
                 "True" => new Token(TokenKind.True, text),
                 "False" => new Token(TokenKind.False, text),
                 _ => new Token(TokenKind.Identifier, text)
@@ -145,7 +151,6 @@ public sealed class Tokenizer(string source)
                     return new Token(TokenKind.AmpAmp, "&&");
                 }
                 throw new Exception("暂不支持单个&");
-
             case '|':
                 if (PeekChar(0) == '|')
                 {
@@ -153,9 +158,6 @@ public sealed class Tokenizer(string source)
                     return new Token(TokenKind.PipePipe, "||");
                 }
                 throw new Exception("暂不支持单个|");
-
-
-
             default:
                 throw new Exception($"Unexpected character: {current}");
         }

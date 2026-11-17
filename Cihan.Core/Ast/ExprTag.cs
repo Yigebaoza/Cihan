@@ -10,4 +10,5 @@ public enum ExprTag
     Unary,
     NumberLiteral,
     BoolLiteral,
+    Call,
 }
