@@ -1,7 +1,7 @@
-var s = "";
+var s = ""; // 声明变量
 
 while (True) {
-    s = Console.readln("请输入: ");
+    s = Console.readln("请输入: "); // 等同于Python: s = input("请键入")
     if (s == "hello") {
         Console.writeln("Hi");
     }

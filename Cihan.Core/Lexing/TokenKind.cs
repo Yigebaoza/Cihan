@@ -14,9 +14,11 @@ public enum TokenKind
 	// ===== 关键字 =====
 	Var,             // var
 	Const,           // const
+	Del,             // del
 	If,              // if
 	Else,            // else
 	While,           // while
+	For,             // for
 	Break,           // break
 	Continue,        // continue
 	Func,            // func

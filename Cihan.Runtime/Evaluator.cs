@@ -19,7 +19,7 @@ public sealed class Evaluator
 		["File"] = new FileObject(),
 	};
 
-	private readonly Core.Environment _global = new();   // 全局层（字段初值，编译器认这个）
+	private readonly Core.Environment _global = new();   // 全局层
 	private Core.Environment _current;                   // 当前层
 	private readonly Dictionary<string, FuncDecl> _funcs = [];
 
@@ -53,7 +53,7 @@ public sealed class Evaluator
 				var callee = Evaluate(call.Callee);
 				// 2. 求值所有参数
 				var args = call.Args.Select(Evaluate).ToArray();
-				// 3. 调用它！
+				// 3. 调用
 				return InvokeMethod(callee!, args);
 			case NumberLiteralExpr number:
 				return number.Value;
@@ -182,22 +182,6 @@ public sealed class Evaluator
 		}
 	}
 
-	public void ExecuteBlockStmt(BlockStmt blockStmt)
-	{
-		_current = new Core.Environment(_current);
-		try
-		{
-			foreach (var stmt in blockStmt.Statements)
-			{
-				ExecuteStmt(stmt);
-			}
-		}
-		finally
-		{
-			_current = _current.Parent!;
-		}
-	}
-
 	private void ExecuteStmt(Stmt stmt)
 	{
 		switch (stmt)
@@ -209,6 +193,20 @@ public sealed class Evaluator
 				if (_current.IsDeclared(varStmt.Name))
 					throw new Exception($"变量 '{varStmt.Name}' 重复声明");
 				_current.Declare(varStmt.Name, new Variable(Evaluate(varStmt.Initializer), varStmt.IsConst));
+				break;
+			case DelStmt delStmt:
+				if (!_current.IsDeclared(delStmt.Expr.Name) && !_funcs.ContainsKey(delStmt.Expr.Name))
+				{
+					throw new Exception($"未定义的标识符: {delStmt.Expr.Name}");
+				}
+				else if (_funcs.ContainsKey(delStmt.Expr.Name))
+				{
+					_funcs.Remove(delStmt.Expr.Name);
+				}
+				else
+				{
+					_current.Declare(delStmt.Expr.Name);
+				}
 				break;
 			case AssignStmt assignStmt:
 				if (_globals.ContainsKey(assignStmt.Name))
@@ -243,15 +241,43 @@ public sealed class Evaluator
 					catch (ContinueSign) { continue; }
 				}
 				break;
+			case ForStmt forStmt:
+				Core.Environment saved = _current;
+				_current = new Core.Environment(_current);
+				ExecuteStmt(forStmt.Init);
+				while (IsTruthy(Evaluate(forStmt.Condition)))
+				{
+					try { ExecuteBlockStmt(forStmt.Body); }
+					catch (BreakSign) { break; }
+					catch (ContinueSign) { }
+					ExecuteStmt(forStmt.Increment);
+				}
+				_current = saved;
+				break;
 			case FuncDecl funcDecl:
 				funcDecl.ClosureEnv = _current;
 				_funcs[funcDecl.Name] = funcDecl;
 				break;
 			case BreakStmt: throw new BreakSign();
 			case ContinueStmt: throw new ContinueSign();
-			case ReturnStmt ret: throw new ReturnSign(ret.Value);
-			default:
-				throw new NotImplementedException($"未实现的语句类型: {stmt.GetType().Name}");
+			case ReturnStmt ret: throw new ReturnSign(ret.Value is null ? null : Evaluate(ret.Value));
+			default: throw new NotImplementedException($"未实现的语句类型: {stmt.GetType().Name}");
+		}
+	}
+
+	public void ExecuteBlockStmt(BlockStmt blockStmt)
+	{
+		_current = new Core.Environment(_current);
+		try
+		{
+			foreach (var stmt in blockStmt.Statements)
+			{
+				ExecuteStmt(stmt);
+			}
+		}
+		finally
+		{
+			_current = _current.Parent!;
 		}
 	}
 
@@ -291,10 +317,20 @@ public sealed class Evaluator
 	private static object? InvokeMethod(object callee, object?[] args)
 	{
 		// 如果 callee 是 BoundMethod，调用它：
-		if (callee is BoundMethod)
+		if (callee is BoundMethod method)
 		{
-			BoundMethod method = (BoundMethod)callee;
-
+			var parameters = method.Method.GetParameters();
+			if (args.Length < parameters.Length
+				&& parameters.Skip(args.Length).All(parameter => parameter.IsOptional))
+			{
+				object?[] expandedArgs = new object?[parameters.Length];
+				Array.Copy(args, expandedArgs, args.Length);
+				for (int i = args.Length; i < parameters.Length; i++)
+				{
+					expandedArgs[i] = parameters[i].DefaultValue;
+				}
+				args = expandedArgs;
+			}
 			return method.Method.Invoke(method.Target, args);
 		}
 		throw new Exception();

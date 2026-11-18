@@ -14,6 +14,8 @@ public sealed class Environment(Environment? parent = null)
     public bool IsDeclared(string name) => _vars.ContainsKey(name);
     public void Declare(string name, Variable v) => _vars[name] = v;
 
+    public void Declare(string name) => _vars.Remove(name);
+
     public bool TryGet(string name, out Variable v)
     {
         if (_vars.TryGetValue(name, out v!)) return true;

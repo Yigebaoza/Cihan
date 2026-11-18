@@ -6,7 +6,13 @@ namespace Cihan.Core.Parsing;
 public sealed class Parser(List<Token> tokens)
 {
     private int _index = 0;
-    private IReadOnlyList<Token> Tokens { get; } = tokens;
+    private List<Token> Tokens { get; } = tokens;
+    private readonly List<string> _errors = [];
+
+    private sealed class ParseError(string message, Token token) : Exception(message)
+    {
+        public Token Token { get; } = token;
+    }
 
     private Token Peek()
     {
@@ -51,8 +57,19 @@ public sealed class Parser(List<Token> tokens)
         List<Stmt> stmts = [];
         while (!IsAtEnd())
         {
-            stmts.Add(ParseStatement());
+            int statementStart = _index;
+            try
+            {
+                stmts.Add(ParseStatement());
+            }
+            catch (Exception exception)
+            {
+                RecordError(exception);
+                RecoverStatement(statementStart, insideBlock: false);
+            }
         }
+
+        ThrowIfErrors();
         return new Program(stmts);
     }
 
@@ -80,7 +97,6 @@ public sealed class Parser(List<Token> tokens)
 
     private Expr ParseEquality()
     {
-        // i < 5
         Expr left = ParseComparison();
 
         while (Peek().Kind is TokenKind.EqualEqual or TokenKind.BangEquals)
@@ -91,13 +107,11 @@ public sealed class Parser(List<Token> tokens)
             Expr right = ParseComparison();
             left = new BinaryExpr(left, op, right);
         }
-
         return left;
     }
 
     private Expr ParseComparison()
     {
-        // i < 5
         Expr left = ParseExpression();   // 下层先解析左右两边
 
         while (Peek().Kind is TokenKind.Less or TokenKind.Greater
@@ -117,7 +131,6 @@ public sealed class Parser(List<Token> tokens)
             Expr right = ParseExpression();
             left = new BinaryExpr(left, op, right);
         }
-
         return left;
     }
 
@@ -160,7 +173,6 @@ public sealed class Parser(List<Token> tokens)
 
             left = new BinaryExpr(left, op, right);
         }
-
         return left;
     }
 
@@ -184,7 +196,8 @@ public sealed class Parser(List<Token> tokens)
             Expr operand = ParseUnary();   // 递归！支持 -(-1)
             return new UnaryExpr(UnaryOp.Negate, operand);
         }
-        return ParsePostfix();
+        var expr = ParsePostfix();
+        return expr;
     }
 
     private Expr ParsePostfix()
@@ -233,7 +246,6 @@ public sealed class Parser(List<Token> tokens)
                 return inner;
             case TokenKind.Identifier:
                 Expr expr = new IdentifierExpr(Advance().Text);
-
                 while (Peek().Kind is TokenKind.LeftParen or TokenKind.Dot)
                 {
                     if (Match(TokenKind.Dot))
@@ -244,7 +256,9 @@ public sealed class Parser(List<Token> tokens)
                     else if (Match(TokenKind.LeftParen))
                     {
                         IReadOnlyList<Expr> args = ParseArgs();
-                        expr = new MethodCallExpr(expr, args);
+                        expr = expr is IdentifierExpr identifier
+                            ? new CallExpr(identifier.Name, args)
+                            : new MethodCallExpr(expr, args);
                     }
                     else if (Match(TokenKind.Dot))
                     {
@@ -256,34 +270,25 @@ public sealed class Parser(List<Token> tokens)
                 }
                 return expr;
             default:
-                throw new Exception($"没有匹配的类型: {Peek().Kind}");
+                throw new Exception($"无法解析表达式，当前 Token: {Peek().Kind}");
         }
     }
 
-    /* public Expr Parse()
-       {
-           Expr expr = ParseEquality();
-           if (!IsAtEnd())
-    //     {
-    //         throw new Exception("解析完成后还有剩余的 Token");
-    //     }
-           return expr;
-       }
-    */
-
-    private Stmt ParseStatement()
+    private Stmt ParseStatement(bool requireSemicolon = true)
     {
-        if (Match(TokenKind.LeftBrace))
+        if (Peek().Kind == TokenKind.LeftBrace)
         {
-            _index--;                 // 把 { 退回去，交给 ParseBlock 自己吃
-            return ParseBlock();      // ParseBlock 返回 BlockStmt（它本来就是 Stmt）
+            return ParseBlock();
         }
-        // 变量声明分支
-        if (Match(TokenKind.Var))
+
+        if (Peek().Kind is TokenKind.Var or TokenKind.Const)
         {
+            bool isConst = Advance().Kind == TokenKind.Const;
             if (Peek().Kind != TokenKind.Identifier)
             {
-                throw new Exception("var 后面必须是变量名");
+                throw new Exception(isConst
+                    ? "const 后面必须是变量名"
+                    : "var 后面必须是变量名");
             }
             string name = Advance().Text;
 
@@ -293,36 +298,26 @@ public sealed class Parser(List<Token> tokens)
             }
 
             Expr initializer = ParseOr();
-
-            if (!Match(TokenKind.Semicolon))
+            if (requireSemicolon)
             {
-                throw new Exception($"变量声明必须以分号结尾，当前 Token: {Peek().Kind}");
+                ConsumeSemicolon("变量声明必须以分号结尾");
             }
 
-            return new VarStmt(name, initializer, false);
+            return new VarStmt(name, initializer, isConst);
         }
 
-        if (Match(TokenKind.Const))
+        if (Match(TokenKind.Del))
         {
             if (Peek().Kind != TokenKind.Identifier)
             {
-                throw new Exception("const 后面必须是变量名");
+                throw new Exception("del 后面必须是标识符");
             }
-            string name = Advance().Text;
-
-            if (!Match(TokenKind.Equals))
+            var statement = new DelStmt(new IdentifierExpr(Advance().Text));
+            if (requireSemicolon)
             {
-                throw new Exception("变量声明缺少 = 号");
+                ConsumeSemicolon("del语句必须以分号结尾");
             }
-
-            Expr initializer = ParseOr();
-
-            if (!Match(TokenKind.Semicolon))
-            {
-                throw new Exception($"变量声明必须以分号结尾，当前 Token: {Peek().Kind}");
-            }
-
-            return new VarStmt(name, initializer, true);
+            return statement;
         }
 
         if (Match(TokenKind.If))
@@ -350,6 +345,34 @@ public sealed class Parser(List<Token> tokens)
             return new WhileStmt(cond, body);
         }
 
+        if (Match(TokenKind.For))
+        {
+            if (!Match(TokenKind.LeftParen)) throw new Exception("for后面必须是(");
+            Stmt? initializer = null;
+            if (!Match(TokenKind.Semicolon)) initializer = ParseStatement(requireSemicolon: false);
+            if (!Match(TokenKind.Semicolon)) throw new Exception("for语句缺少分号");
+            Expr? condition = null;
+            if (!Match(TokenKind.Semicolon))
+            {
+                condition = ParseOr();
+            }
+            if (!Match(TokenKind.Semicolon))
+            {
+                throw new Exception("for条件后面必须以分号结尾");
+            }
+
+            Expr? increment = null;
+            if (!Match(TokenKind.RightParen))
+            {
+                increment = ParseOr();
+            }
+            if (!Match(TokenKind.RightParen)) throw new Exception("for语句缺少右括号");
+
+            BlockStmt body = ParseBlock();
+
+            return new ForStmt(initializer, condition, increment == null ? null : new ExprStmt(increment), body);
+        }
+
         if (Match(TokenKind.Func))
         {
             if (Peek().Kind != TokenKind.Identifier) throw new Exception("func后面必须是函数名");
@@ -363,15 +386,35 @@ public sealed class Parser(List<Token> tokens)
 
         if (Match(TokenKind.Break))
         {
-            if (!Match(TokenKind.Semicolon)) throw new Exception("break语句必须以分号结尾");
+            if (requireSemicolon)
+            {
+                ConsumeSemicolon("break语句必须以分号结尾");
+            }
             return new BreakStmt();
         }
         if (Match(TokenKind.Continue))
         {
-            if (!Match(TokenKind.Semicolon)) throw new Exception("continue语句必须以分号结尾");
+            if (requireSemicolon)
+            {
+                ConsumeSemicolon("continue语句必须以分号结尾");
+            }
             return new ContinueStmt();
         }
-        if (Match(TokenKind.Return)) return new ExprStmt(ParseOr());
+        if (Match(TokenKind.Return))
+        {
+            Expr? value = Peek().Kind is TokenKind.Semicolon or TokenKind.RightBrace or TokenKind.Eof
+                ? null
+                : ParseOr();
+            if (requireSemicolon)
+            {
+                ConsumeSemicolon("return语句必须以分号结尾");
+            }
+            else
+            {
+                Match(TokenKind.Semicolon);
+            }
+            return new ReturnStmt(value);
+        }
 
         // 赋值语句：标识符 紧跟 =
         if (Peek().Kind == TokenKind.Identifier && Peek(1).Kind == TokenKind.Equals)
@@ -379,19 +422,28 @@ public sealed class Parser(List<Token> tokens)
             string name = Advance().Text;   // 吃掉标识符
             Advance();                       // 吃掉 =
             Expr value = ParseOr();          // 右侧走完整表达式链
-            Match(TokenKind.Semicolon);
+            if (requireSemicolon)
+            {
+                ConsumeSemicolon("赋值语句必须以分号结尾");
+            }
             return new AssignStmt(name, value);
         }
 
         // 表达式语句分支
-        Expr expr = ParseOr();
+        Expr expression = ParseOr();
+        if (requireSemicolon)
+        {
+            ConsumeSemicolon("语句必须以分号结尾");
+        }
+        return new ExprStmt(expression);
+    }
 
+    private void ConsumeSemicolon(string message)
+    {
         if (!Match(TokenKind.Semicolon))
         {
-            throw new Exception($"语句必须以分号结尾，当前 Token: {Peek().Kind}");
+            throw new ParseError(message, Previous());
         }
-
-        return new ExprStmt(expr);
     }
 
     private BlockStmt ParseBlock()
@@ -408,13 +460,66 @@ public sealed class Parser(List<Token> tokens)
                 throw new Exception("{未闭合");
             }
 
-            list.Add(ParseStatement());
+            int statementStart = _index;
+            try
+            {
+                list.Add(ParseStatement());
+            }
+            catch (Exception exception)
+            {
+                RecordError(exception);
+                RecoverStatement(statementStart, insideBlock: true);
+            }
         }
         Match(TokenKind.RightBrace);
         return new BlockStmt(list);
     }
 
-    private IReadOnlyList<Expr> ParseArgs()
+    private void RecordError(Exception exception)
+    {
+        Token token = exception is ParseError parseError ? parseError.Token : Peek();
+        _errors.Add($"语法错误（第 {token.Line} 行，第 {token.Column} 列）：{exception.Message}");
+    }
+
+    private void RecoverStatement(int statementStart, bool insideBlock)
+    {
+        if (insideBlock && Peek().Kind == TokenKind.RightBrace)
+        {
+            return;
+        }
+
+        if (_index == statementStart && !IsAtEnd())
+        {
+            Advance();
+        }
+
+        while (!IsAtEnd())
+        {
+            if (insideBlock && Peek().Kind == TokenKind.RightBrace)
+            {
+                return;
+            }
+            if (_index > statementStart && Peek().Line > Previous().Line)
+            {
+                return;
+            }
+            if (Match(TokenKind.Semicolon))
+            {
+                return;
+            }
+            Advance();
+        }
+    }
+
+    private void ThrowIfErrors()
+    {
+        if (_errors.Count > 0)
+        {
+            throw new Exception(string.Join(System.Environment.NewLine, _errors));
+        }
+    }
+
+    private List<Expr> ParseArgs()
     {
         List<Expr> args = [];
         if (Match(TokenKind.RightParen))
@@ -445,7 +550,6 @@ public sealed class Parser(List<Token> tokens)
 
         do
         {
-            // 形参必须是标识符：用 Peek().Kind 判断 + Advance() 消费，替代 ExpectIdentifier
             Token t = Peek();
             if (t.Kind != TokenKind.Identifier)
                 throw new Exception($"期望形参名(标识符)，当前 Token: {t}");
@@ -462,10 +566,7 @@ public sealed class Parser(List<Token> tokens)
 
         } while (Match(TokenKind.Comma));   // 逗号续，否则退出循环
 
-        // 收尾必须吃掉 )：用 Match 检查 + 报错，替代 Expect(RightParen)
-        if (!Match(TokenKind.RightParen))
-            throw new Exception($"期望 ')'，当前 Token: {Peek()}");
-
         return (names, defaults);
     }
+
 }

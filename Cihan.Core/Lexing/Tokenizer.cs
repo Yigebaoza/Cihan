@@ -5,6 +5,8 @@ public sealed class Tokenizer(string source)
     private string Source { get; } = source;
 
     private int _index = 0;
+    private int _line = 1;
+    private int _column = 1;
 
     public List<Token> Tokenize()
     {
@@ -25,6 +27,20 @@ public sealed class Tokenizer(string source)
     {
         char cur = Source[_index];
         _index++;
+        if (cur == '\n')
+        {
+            _line++;
+            _column = 1;
+        }
+        else if (cur == '\r' && PeekChar(0) != '\n')
+        {
+            _line++;
+            _column = 1;
+        }
+        else
+        {
+            _column++;
+        }
         return cur;
     }
 
@@ -47,7 +63,7 @@ public sealed class Tokenizer(string source)
         {
             if (PeekChar(0) == null)
             {
-                return new Token(TokenKind.Eof, "");
+                return new Token(TokenKind.Eof, "", _line, _column);
             }
             if (PeekChar(0) == ' ' || PeekChar(0) == '\t' || PeekChar(0) == '\r' || PeekChar(0) == '\n')
             {
@@ -66,6 +82,9 @@ public sealed class Tokenizer(string source)
         }
 
         char? current = PeekChar(0);
+        int tokenLine = _line;
+        int tokenColumn = _column;
+        Token Create(TokenKind kind, string text) => new(kind, text, tokenLine, tokenColumn);
 
         if (current != null && char.IsDigit(current.Value))
         {
@@ -75,7 +94,7 @@ public sealed class Tokenizer(string source)
                 AdvanceChar();
             }
             string num = Source[start.._index];
-            return new Token(TokenKind.NumberLiteral, num);
+            return Create(TokenKind.NumberLiteral, num);
         }
 
         if (current != null && (char.IsLetter(current.Value) || current.Value == '_'))
@@ -88,50 +107,52 @@ public sealed class Tokenizer(string source)
             string text = Source[start.._index];
             return text switch
             {
-                "var" => new Token(TokenKind.Var, text),
-                "const" => new Token(TokenKind.Const, text),
-                "if" => new Token(TokenKind.If, text),
-                "else" => new Token(TokenKind.Else, text),
-                "while" => new Token(TokenKind.While, text),
-                "break" => new Token(TokenKind.Break, text),
-                "continue" => new Token(TokenKind.Continue, text),
-                "func" => new Token(TokenKind.Func, text),
-                "return" => new Token(TokenKind.Return, text),
-                "True" => new Token(TokenKind.True, text),
-                "False" => new Token(TokenKind.False, text),
-                _ => new Token(TokenKind.Identifier, text)
+                "var" => Create(TokenKind.Var, text),
+                "const" => Create(TokenKind.Const, text),
+                "del" => Create(TokenKind.Del, text),
+                "if" => Create(TokenKind.If, text),
+                "else" => Create(TokenKind.Else, text),
+                "while" => Create(TokenKind.While, text),
+                "for" => Create(TokenKind.For, text),
+                "break" => Create(TokenKind.Break, text),
+                "continue" => Create(TokenKind.Continue, text),
+                "func" => Create(TokenKind.Func, text),
+                "return" => Create(TokenKind.Return, text),
+                "True" => Create(TokenKind.True, text),
+                "False" => Create(TokenKind.False, text),
+                _ => Create(TokenKind.Identifier, text)
             };
         }
 
         switch (AdvanceChar())
         {
-            case '.': return new Token(TokenKind.Dot, ".");
-            case '(': return new Token(TokenKind.LeftParen, "(");
-            case ')': return new Token(TokenKind.RightParen, ")");
-            case ',': return new Token(TokenKind.Comma, ",");
-            case ';': return new Token(TokenKind.Semicolon, ";");
+            case '.': return Create(TokenKind.Dot, ".");
+            case '(': return Create(TokenKind.LeftParen, "(");
+            case ')': return Create(TokenKind.RightParen, ")");
+            case ',': return Create(TokenKind.Comma, ",");
+            case ';': return Create(TokenKind.Semicolon, ";");
             case '+':
-                if (PeekChar(0) == '+') { AdvanceChar(); return new Token(TokenKind.PlusPlus, "++"); }
-                return new Token(TokenKind.Plus, "+");
+                if (PeekChar(0) == '+') { AdvanceChar(); return Create(TokenKind.PlusPlus, "++"); }
+                return Create(TokenKind.Plus, "+");
             case '-':
-                if (PeekChar(0) == '-') { AdvanceChar(); return new Token(TokenKind.MinusMinus, "--"); }
-                return new Token(TokenKind.Minus, "-");
-            case '*': return new Token(TokenKind.Star, "*");
-            case '/': return new Token(TokenKind.Slash, "/");
-            case '{': return new Token(TokenKind.LeftBrace, "{");
-            case '}': return new Token(TokenKind.RightBrace, "}");
+                if (PeekChar(0) == '-') { AdvanceChar(); return Create(TokenKind.MinusMinus, "--"); }
+                return Create(TokenKind.Minus, "-");
+            case '*': return Create(TokenKind.Star, "*");
+            case '/': return Create(TokenKind.Slash, "/");
+            case '{': return Create(TokenKind.LeftBrace, "{");
+            case '}': return Create(TokenKind.RightBrace, "}");
             case '=':
-                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.EqualEqual, "=="); }
-                return new Token(TokenKind.Equals, "=");  // 单个 = 还是赋值号
+                if (PeekChar(0) == '=') { AdvanceChar(); return Create(TokenKind.EqualEqual, "=="); }
+                return Create(TokenKind.Equals, "=");  // 单个 = 还是赋值号
             case '!':
-                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.BangEquals, "!="); }
-                return new Token(TokenKind.Bang, "!");
+                if (PeekChar(0) == '=') { AdvanceChar(); return Create(TokenKind.BangEquals, "!="); }
+                return Create(TokenKind.Bang, "!");
             case '<':
-                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.LessOrEqual, "<="); }
-                return new Token(TokenKind.Less, "<");
+                if (PeekChar(0) == '=') { AdvanceChar(); return Create(TokenKind.LessOrEqual, "<="); }
+                return Create(TokenKind.Less, "<");
             case '>':
-                if (PeekChar(0) == '=') { AdvanceChar(); return new Token(TokenKind.GreaterOrEqual, ">="); }
-                return new Token(TokenKind.Greater, ">");
+                if (PeekChar(0) == '=') { AdvanceChar(); return Create(TokenKind.GreaterOrEqual, ">="); }
+                return Create(TokenKind.Greater, ">");
             case '"':
                 int stringLiteralStart = _index;
 
@@ -146,23 +167,23 @@ public sealed class Tokenizer(string source)
                     AdvanceChar();
                 }
 
-                return new Token(TokenKind.StringLiteral, value);
+                return Create(TokenKind.StringLiteral, value);
             case '&':
                 if (PeekChar(0) == '&')
                 {
                     AdvanceChar();
                     return new Token(TokenKind.AmpAmp, "&&");
                 }
-                throw new Exception("暂不支持单个&");
+                throw new Exception($"第 {tokenLine} 行，第 {tokenColumn} 列：暂不支持单个&");
             case '|':
                 if (PeekChar(0) == '|')
                 {
                     AdvanceChar();
                     return new Token(TokenKind.PipePipe, "||");
                 }
-                throw new Exception("暂不支持单个|");
+                throw new Exception($"第 {tokenLine} 行，第 {tokenColumn} 列：暂不支持单个|");
             default:
-                throw new Exception($"Unexpected character: {current}");
+                throw new Exception($"第 {tokenLine} 行，第 {tokenColumn} 列：无法识别的字符 '{current}'");
         }
 
     }

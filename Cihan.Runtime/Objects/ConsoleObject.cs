@@ -2,12 +2,12 @@ namespace Cihan.Runtime.Objects;
 
 public sealed class ConsoleObject
 {
-    public static void Writeln(object? value)
+    public static void Writeln(object? value = null)
     {
         Console.WriteLine(value);
     }
 
-    public static void Write(object? value)
+    public static void Write(object? value = null)
     {
         Console.Write(value);
     }
