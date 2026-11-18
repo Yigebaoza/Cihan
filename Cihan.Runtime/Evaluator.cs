@@ -303,37 +303,120 @@ public sealed class Evaluator
 
 	private static BoundMethod ResolveMember(object target, string name)
 	{
-		// 把语言里的名字映射到 C# 的方法名
-		string csharpName = name[0].ToString().ToUpper() + name[1..]; //write => W+rite
-																	  // 然后用反射找到方法：
-		var method = target.GetType().GetMethod(csharpName);
-		if (method is null)
+		var methods = target.GetType().GetMethods()
+			.Where(method => method.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+			.ToArray();
+		if (methods.Length == 0)
 		{
 			throw new Exception("找不到方法");
 		}
-		return new BoundMethod(target, method);
+		return new BoundMethod(target, methods);
 	}
 
 	private static object? InvokeMethod(object callee, object?[] args)
 	{
 		// 如果 callee 是 BoundMethod，调用它：
-		if (callee is BoundMethod method)
+		if (callee is BoundMethod boundMethod)
 		{
-			var parameters = method.Method.GetParameters();
-			if (args.Length < parameters.Length
-				&& parameters.Skip(args.Length).All(parameter => parameter.IsOptional))
+			foreach (var method in boundMethod.Methods)
 			{
-				object?[] expandedArgs = new object?[parameters.Length];
-				Array.Copy(args, expandedArgs, args.Length);
-				for (int i = args.Length; i < parameters.Length; i++)
+				var parameters = method.GetParameters();
+				if (args.Length > parameters.Length)
 				{
-					expandedArgs[i] = parameters[i].DefaultValue;
+					continue;
 				}
-				args = expandedArgs;
+
+				bool hasAllArguments = true;
+				object?[] convertedArgs = new object?[parameters.Length];
+				for (int i = 0; i < parameters.Length; i++)
+				{
+					if (i < args.Length)
+					{
+						if (!TryConvertArgument(args[i], parameters[i].ParameterType, out convertedArgs[i]))
+						{
+							hasAllArguments = false;
+							break;
+						}
+					}
+					else if (parameters[i].IsOptional)
+					{
+						convertedArgs[i] = parameters[i].DefaultValue;
+					}
+					else
+					{
+						hasAllArguments = false;
+						break;
+					}
+				}
+
+				if (hasAllArguments)
+				{
+					return method.Invoke(boundMethod.Target, convertedArgs);
+				}
 			}
-			return method.Method.Invoke(method.Target, args);
+
+			throw new Exception("找不到匹配的方法参数");
 		}
 		throw new Exception();
+	}
+
+	private static bool TryConvertArgument(object? value, Type targetType, out object? converted)
+	{
+		if (targetType == typeof(string))
+		{
+			converted = value?.ToString();
+			return true;
+		}
+		if (targetType == typeof(double))
+		{
+			if (value is double number)
+			{
+				converted = number;
+				return true;
+			}
+			if (value is Bool boolean)
+			{
+				converted = boolean.Value ? 1.0 : 0.0;
+				return true;
+			}
+		}
+		if (targetType == typeof(int))
+		{
+			if (value is double number)
+			{
+				converted = checked((int)number);
+				return true;
+			}
+		}
+		if (targetType == typeof(long))
+		{
+			if (value is double number)
+			{
+				converted = checked((long)number);
+				return true;
+			}
+		}
+		if (targetType == typeof(bool))
+		{
+			if (value is Bool boolean)
+			{
+				converted = boolean.Value;
+				return true;
+			}
+		}
+		if (value is null && (!targetType.IsValueType || Nullable.GetUnderlyingType(targetType) != null))
+		{
+			converted = null;
+			return true;
+		}
+		if (value != null && targetType.IsInstanceOfType(value))
+		{
+			converted = value;
+			return true;
+		}
+
+		converted = null;
+		return false;
 	}
 
 	private static double ToNumber(object? value)
